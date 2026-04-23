@@ -102,7 +102,7 @@ resource "aws_security_group" "bastion_sg" {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"] 
+    cidr_blocks = ["0.0.0.0/0"]
   }
   egress {
     from_port   = 0
@@ -112,8 +112,8 @@ resource "aws_security_group" "bastion_sg" {
   }
 }
 
-resource "aws_security_group" "gpu_sg" {
-  name        = "ai-gpu-node-sg"
+resource "aws_security_group" "cpu_sg" {
+  name        = "ai-cpu-node-sg"
   description = "Allow SSH from Bastion and HTTP from ALB"
   vpc_id      = aws_vpc.ai_vpc.id
 
@@ -151,7 +151,7 @@ resource "random_id" "id" {
 
 data "aws_ami" "ubuntu" {
   most_recent = true
-  owners      = ["099720109477"] # Canonical
+  owners      = ["099720109477"]
   filter {
     name   = "name"
     values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
@@ -172,13 +172,17 @@ resource "aws_instance" "bastion" {
   tags = { Name = "AI-Bastion-Host" }
 }
 
-# 5. GPU Instance
-data "aws_ami" "deep_learning" {
+# 5. CPU Instance (Amazon Linux 2023)
+data "aws_ami" "al2023" {
   most_recent = true
   owners      = ["amazon"]
   filter {
     name   = "name"
-    values = ["Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04)*"]
+    values = ["al2023-ami-*-x86_64"]
+  }
+  filter {
+    name   = "state"
+    values = ["available"]
   }
 }
 
@@ -204,16 +208,16 @@ resource "aws_iam_instance_profile" "ai_profile" {
   role = aws_iam_role.ai_role.name
 }
 
-resource "aws_instance" "gpu_node" {
-  ami                    = data.aws_ami.deep_learning.id
-  instance_type          = "g4dn.xlarge" 
+resource "aws_instance" "cpu_node" {
+  ami                    = data.aws_ami.al2023.id
+  instance_type          = "m7i-flex.large"
   subnet_id              = aws_subnet.private[0].id
-  vpc_security_group_ids = [aws_security_group.gpu_sg.id]
+  vpc_security_group_ids = [aws_security_group.cpu_sg.id]
   key_name               = aws_key_pair.lab_key.key_name
   iam_instance_profile   = aws_iam_instance_profile.ai_profile.name
 
   root_block_device {
-    volume_size = 150 
+    volume_size = 50
     volume_type = "gp3"
   }
 
@@ -264,6 +268,6 @@ resource "aws_lb_listener" "ai_listener" {
 
 resource "aws_lb_target_group_attachment" "ai_tg_attach" {
   target_group_arn = aws_lb_target_group.ai_tg.arn
-  target_id        = aws_instance.gpu_node.id
+  target_id        = aws_instance.cpu_node.id
   port             = 8000
 }
